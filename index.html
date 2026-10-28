@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d14">
+  <title>MacBook 芯片级拆解 · 交互模型</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #edf3fb;
+      --muted: #9aa9bc;
+      --line: rgba(190, 211, 237, .14);
+      --glass: rgba(13, 20, 31, .78);
+      --mint: #94f0d3;
+      --blue: #80aaff;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #090d14; color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { background: radial-gradient(ellipse at 52% 44%, #1a2635 0%, #0d141e 47%, #080c12 100%); }
+    #scene-container { position: fixed; inset: 0; overflow: hidden; touch-action: none; }
+    #scene-container canvas { display: block; width: 100%; height: 100%; outline: none; }
+    .topbar { position: fixed; z-index: 5; top: 0; left: 0; right: 0; height: 76px; padding: 17px 28px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; background: linear-gradient(180deg, rgba(4,8,13,.7), transparent); }
+    .brand { display: flex; align-items: center; gap: 13px; }
+    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(148,240,211,.45); border-radius: 11px; color: var(--mint); font-size: 17px; box-shadow: 0 0 28px rgba(90,220,191,.12); }
+    .brand strong { display: block; font-size: 12px; letter-spacing: .19em; font-weight: 650; }
+    .brand span { display: block; color: var(--muted); font-size: 10px; letter-spacing: .12em; margin-top: 4px; }
+    .top-meta { color: #b1bfd0; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; }
+    .top-meta b { color: var(--mint); font-weight: 500; }
+    .intro { position: fixed; z-index: 10; top: 94px; right: 26px; width: min(350px, calc(100vw - 32px)); max-height: calc(100vh - 122px); overflow: auto; padding: 20px; background: var(--glass); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 55px rgba(0,0,0,.28); backdrop-filter: blur(18px); }
+    .eyebrow { color: var(--mint); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    .intro h1 { margin: 10px 0 8px; font-size: 19px; line-height: 1.3; letter-spacing: -.035em; font-weight: 600; }
+    .panel-toggle { display: none; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; color: var(--mint); background: rgba(16,25,37,.8); font: inherit; font-size: 10px; cursor: pointer; }
+    .intro p { margin: 0; color: #a9b7c8; font-size: 12px; line-height: 1.75; }
+    .rule { height: 1px; background: var(--line); margin: 16px 0 14px; }
+    .selection-info { display: none; }
+    .intro.has-selection .selection-info { display: block; }
+    .selected-label { display: block; color: #8494a8; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .15em; margin-bottom: 7px; }
+    #selected-name { min-height: 23px; display: block; color: var(--mint); font-size: 14px; font-weight: 600; }
+    #selected-description { min-height: 37px; display: block; margin-top: 5px; color: #a9b7c8; font-size: 11px; line-height: 1.6; }
+    .part-role { color: #c2cedc; font-size: 12px; line-height: 1.65; margin: 10px 0 14px; }
+    .detail-grid { display: grid; gap: 8px; }
+    .detail-row { display: grid; grid-template-columns: 95px 1fr; gap: 10px; font-size: 10px; line-height: 1.55; }
+    .detail-row span:first-child { color: #8292a6; }
+    .detail-row span:last-child { color: #d3deea; }
+    .source-links { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 13px; }
+    .source-links a { color: var(--mint); font-size: 10px; text-decoration: none; border-bottom: 1px solid rgba(148,240,211,.25); }
+    .source-links a:hover { border-color: var(--mint); }
+    .hero-spec { margin-top: 12px !important; color: #d2deeb !important; font-size: 11px !important; }
+    .hint { position: fixed; z-index: 5; bottom: 23px; left: 27px; color: #a9b8c9; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .05em; pointer-events: none; }
+    .hint kbd { display: inline-block; padding: 5px 7px; margin-right: 5px; border: 1px solid var(--line); border-radius: 6px; color: #d2deeb; background: rgba(16,25,37,.72); font: inherit; }
+    #load-status { position: fixed; z-index: 12; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; color: #c8d5e3; background: rgba(8,13,20,.82); font-size: 12px; backdrop-filter: blur(10px); }
+    #load-status.hidden { display: none; }
+    #manual-controls { display: block; position: fixed; z-index: 11; left: 50%; transform: translateX(-50%); bottom: 22px; width: min(360px, calc(100vw - 32px)); padding: 13px 16px; background: rgba(13, 20, 31, .9); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(16px); box-shadow: 0 12px 36px rgba(0,0,0,.3); }
+    #manual-controls.visible { display: block; }
+    .manual-head { display: flex; justify-content: space-between; color: #b8c6d7; font-size: 10px; margin-bottom: 8px; }
+    #explode-slider { width: 100%; accent-color: var(--mint); }
+    .explode-marks { display: flex; justify-content: space-between; color: #8191a6; font: 9px ui-monospace, monospace; margin-top: 3px; }
+    .error { color: #ffb8b8 !important; }
+    /* Keep the library's built-in controls on the left so the fixed Chinese intro stays top-right. */
+    /* Keep the library UI enabled for its automatic mode, while using one compact slider for both modes. */
+    .exploder-ui-root, .exploder-hud-root, .exploder-info-hud,
+    .exploder-scroll-guide, .exploder-zoom-controls { display: none !important; }
+    @media (max-width: 700px) {
+      .topbar { height: 62px; padding: 12px 15px; }
+      .top-meta { display: none; }
+      .intro { top: 72px; right: 12px; width: min(280px, calc(100vw - 24px)); max-height: calc(100vh - 110px); padding: 13px; }
+      .intro.compact { max-height: 112px; overflow: hidden; }
+      .intro.compact .hero-spec, .intro.compact .rule, .intro.compact .selected-label,
+      .intro.compact #selected-role, .intro.compact .detail-grid, .intro.compact .source-links { display: none; }
+      .intro.compact h1 { margin-bottom: 6px; }
+      .panel-toggle { display: inline-block; }
+      .intro h1 { font-size: 16px; }
+      .intro p { font-size: 11px; }
+      .intro #product-dimensions { display: none; }
+      .hint { left: 13px; bottom: 14px; font-size: 9px; }
+      .hint { bottom: 90px; }
+      .hint { display: none; }
+      #manual-controls { bottom: 12px; }
+      .intro { max-height: min(44vh, 360px); }
+      .intro.has-selection { max-height: min(48vh, 390px); overflow-y: auto; }
+      .intro:not(.has-selection) { width: auto; max-width: calc(100vw - 24px); padding: 10px 12px; }
+      .intro:not(.has-selection) .eyebrow { font-size: 8px; }
+      .intro:not(.has-selection) h1 { margin: 4px 0 0; font-size: 13px; }
+      .intro:not(.has-selection) .hero-spec { display: none; }
+      .intro.has-selection .rule { margin: 9px 0 8px; }
+      .intro.has-selection #selected-role { margin: 6px 0 9px; }
+      .detail-row { grid-template-columns: 82px 1fr; gap: 7px; font-size: 10px; }
+      .source-links { margin-top: 9px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/": "https://cdn.jsdelivr.net/npm/three@0.170.0/",
+        "gltf-exploder": "https://esm.sh/gltf-exploder@1.0.2?external=three"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene-container" aria-label="MacBook 拆解模型视口"></div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">⌘</div>
+      <div><strong>OBJECT / 022</strong><span>MACBOOK · COMPONENT STUDY</span></div>
+    </div>
+    <div class="top-meta"><b>EXPLODED VIEW</b> &nbsp; / &nbsp; INTERACTIVE TEARDOWN</div>
+  </header>
+  <aside class="intro" aria-live="polite">
+    <span class="eyebrow">HARDWARE / INSIDE</span>
+    <h1 id="product-title">MacBook Pro · M3 Pro</h1>
+    <button class="panel-toggle" id="panel-toggle" type="button" aria-expanded="false">展开说明</button>
+    <p class="hero-spec" id="product-configuration"></p>
+    <p class="hero-spec" id="product-display"></p>
+    <p class="hero-spec" id="product-dimensions"></p>
+    <section class="selection-info" id="selection-info">
+      <div class="rule"></div>
+      <span class="selected-label">SELECTED COMPONENT</span>
+      <strong id="selected-name"></strong>
+      <p class="part-role" id="selected-role"></p>
+      <div class="detail-grid" id="selected-details"></div>
+      <div class="source-links" id="selected-sources"></div>
+    </section>
+  </aside>
+  <div id="manual-controls" aria-label="手动爆炸控制">
+    <div class="manual-head"><span>部件拆解进度</span><span id="explode-value">0.00</span></div>
+    <input id="explode-slider" type="range" min="0" max="1" step="0.01" value="0">
+      <div class="explode-marks"><span>装配视图</span><span>分解视图</span></div>
+  </div>
+  <div class="hint"><kbd>拖动</kbd>旋转视角 <kbd>滚轮</kbd>缩放 <kbd>点击</kbd>选择部件</div>
+  <div id="load-status">正在载入 MacBook 部件模型…</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { productInfo, partData } from './part-data.js';
+    import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+    const container = document.querySelector('#scene-container');
+    const status = document.querySelector('#load-status');
+    const selectedName = document.querySelector('#selected-name');
+    const selectedRole = document.querySelector('#selected-role');
+    const selectedDetails = document.querySelector('#selected-details');
+    const selectedSources = document.querySelector('#selected-sources');
+    const introPanel = document.querySelector('.intro');
+    const panelToggle = document.querySelector('#panel-toggle');
+    document.querySelector('#product-title').textContent = productInfo.model;
+    document.querySelector('#product-configuration').textContent = productInfo.configuration;
+    document.querySelector('#product-display').textContent = productInfo.display;
+    document.querySelector('#product-dimensions').textContent = `机身 ${productInfo.modelDimensions} · 电池 ${productInfo.battery}`;
+    if (window.matchMedia('(max-width: 700px)').matches) introPanel.classList.add('compact');
+    panelToggle.addEventListener('click', () => {
+      const compact = introPanel.classList.toggle('compact');
+      panelToggle.textContent = compact ? '展开说明' : '收起说明';
+      panelToggle.setAttribute('aria-expanded', String(!compact));
+    });
+    const manualControls = document.querySelector('#manual-controls');
+    const explodeSlider = document.querySelector('#explode-slider');
+    const explodeValue = document.querySelector('#explode-value');
+
+    // Hard-coded Chinese labels for every mesh exported from the assembly.
+    const nameMap = {
+      bottom_case: '底壳 · 承载内部组件的铝合金机身',
+      logic_board: '逻辑主板 · 芯片与接口的电气载体',
+      soc_m3: 'Apple M3 芯片 · 系统级处理器',
+      unified_memory_left: '统一内存左侧封装',
+      unified_memory_right: '统一内存右侧封装',
+      ssd_controller: 'SSD 主控 · 管理闪存读写',
+      ssd_nand: 'SSD NAND 闪存颗粒',
+      wifi_bt_module: 'Wi‑Fi / 蓝牙无线模块',
+      power_management_ic: '电源管理芯片',
+      display_assembly: '显示屏总成 · Retina 显示组件',
+      display_connector: '显示屏连接器 · 连接主板与屏幕',
+      battery: '电池组 · 内置锂离子电池',
+      battery_management_board: '电池管理板 · 监测与调节电池状态',
+      trackpad: '触控板 · Force Touch 输入组件',
+      keyboard_top_case: '键盘上壳 · 键盘与掌托结构',
+      speaker_left: '左扬声器 · 立体声单元',
+      speaker_right: '右扬声器 · 立体声单元',
+      fan_left: '左侧风扇 · 主动散热组件',
+      fan_right: '右侧风扇 · 主动散热组件',
+      usb_c_board: 'USB‑C / HDMI / SDXC 端口组件 · 左右侧 I/O',
+      magsafe_board: 'MagSafe 接口板 · 磁吸充电接口',
+      audio_board: '音频接口板 · 右前侧 I/O'
+    };
+
+    let renderer, scene, camera, canvas, modelRoot, controls, exploder;
+    let fallbackActive = false;
+    let highlightedComponentName = null;
+    let highlightedParts = [];
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const manualParts = [];
+    const fixedLidTransforms = [];
+
+    function printMeshNames(root) {
+      const names = [];
+      root.traverse((object) => {
+        if (object.isMesh) {
+          names.push(object.name);
+          if (!object.name) console.warn('[MacBook] Mesh 没有 name，跳过名称映射。', object);
+        }
+      });
+      console.info(`[MacBook] 已加载 ${names.length} 个 Mesh：`, names);
+      return names;
+    }
+
+
+    function clearHighlight() {
+      for (const part of highlightedParts) {
+        part.object.material = part.originalMaterial;
+        part.object.remove(part.outline);
+        part.outline.geometry.dispose();
+        part.outline.material.dispose();
+        const materials = Array.isArray(part.highlightMaterial) ? part.highlightMaterial : [part.highlightMaterial];
+        for (const material of materials) material?.dispose();
+      }
+      highlightedParts = [];
+      highlightedComponentName = null;
+    }
+
+    function clearSelection() {
+      clearHighlight();
+      introPanel.classList.remove('has-selection');
+      selectedName.textContent = '';
+      selectedRole.textContent = '';
+      selectedDetails.replaceChildren();
+      selectedSources.replaceChildren();
+      if (window.matchMedia('(max-width: 700px)').matches) introPanel.classList.add('compact');
+      panelToggle.textContent = '展开说明';
+      panelToggle.setAttribute('aria-expanded', 'false');
+    }
+
+    function addAppleMark(root) {
+      const display = [];
+      root.traverse((object) => { if (object.isMesh && object.name === 'display_assembly') display.push(object); });
+      if (!display.length) return;
+      const shape = new THREE.Shape();
+      shape.moveTo(-0.001, 0.010);
+      shape.bezierCurveTo(-0.006, 0.010, -0.011, 0.006, -0.011, 0.000);
+      shape.bezierCurveTo(-0.011, -0.007, -0.006, -0.012, -0.001, -0.011);
+      shape.bezierCurveTo(0.002, -0.010, 0.004, -0.010, 0.007, -0.011);
+      shape.bezierCurveTo(0.013, -0.012, 0.016, -0.006, 0.016, 0.000);
+      shape.bezierCurveTo(0.014, 0.003, 0.012, 0.003, 0.009, 0.002);
+      shape.bezierCurveTo(0.008, 0.005, 0.009, 0.008, 0.011, 0.009);
+      shape.bezierCurveTo(0.010, 0.010, 0.009, 0.010, 0.008, 0.010);
+      shape.bezierCurveTo(0.004, 0.011, 0.003, 0.008, -0.001, 0.010);
+      const leaf = new THREE.Shape();
+      leaf.moveTo(0.001, 0.012);
+      leaf.bezierCurveTo(0.001, 0.017, 0.005, 0.020, 0.010, 0.020);
+      leaf.bezierCurveTo(0.010, 0.016, 0.007, 0.013, 0.001, 0.012);
+      const material = new THREE.MeshStandardMaterial({ color: 0xb8c3d0, metalness: 0.68, roughness: 0.28, side: THREE.DoubleSide });
+      for (const [part, z] of [[shape, -0.00302], [leaf, -0.00302]]) {
+        const mark = new THREE.Mesh(new THREE.ExtrudeGeometry(part, { depth: 0.00024, bevelEnabled: false, curveSegments: 10 }), material);
+        mark.position.z = z;
+        mark.name = 'apple_lid_mark';
+        mark.raycast = () => {};
+        mark.renderOrder = 3;
+        display[0].add(mark);
+      }
+    }
+
+    function enableComfortableRotation(targetControls, targetCamera, targetCanvas, useOrbitAutoRotate = false) {
+      if (!targetControls) return;
+      if (useOrbitAutoRotate && targetControls instanceof OrbitControls) {
+        targetControls.autoRotate = true;
+        targetControls.autoRotateSpeed = 0.32;
+        return;
+      }
+      const originalUpdate = targetControls.update?.bind(targetControls);
+      if (!originalUpdate) return;
+      let lastFrame = performance.now();
+      let pauseUntil = 0;
+      const pause = () => { pauseUntil = performance.now() + 2600; };
+      targetCanvas.addEventListener('pointerdown', pause, { passive: true });
+      targetCanvas.addEventListener('wheel', pause, { passive: true });
+      targetControls.update = (...args) => {
+        const now = performance.now();
+        const delta = Math.min((now - lastFrame) / 1000, 0.05);
+        lastFrame = now;
+        if (now > pauseUntil && targetCamera && targetControls.target) {
+          targetCamera.position.sub(targetControls.target).applyAxisAngle(new THREE.Vector3(0, 1, 0), delta * 0.065).add(targetControls.target);
+        }
+        return originalUpdate(...args);
+      };
+    }
+
+    function componentNameFor(object) {
+      for (let node = object; node; node = node.parent) {
+        if (Object.prototype.hasOwnProperty.call(nameMap, node.name) &&
+            Object.prototype.hasOwnProperty.call(partData, node.name)) return node.name;
+      }
+      return null;
+    }
+
+    function captureFixedLid(root) {
+      fixedLidTransforms.length = 0;
+      root.traverse((object) => {
+        if (componentNameFor(object) !== 'display_assembly') return;
+        fixedLidTransforms.push({
+          object,
+          position: object.position.clone(),
+          quaternion: object.quaternion.clone(),
+          scale: object.scale.clone()
+        });
+      });
+    }
+
+    function restoreFixedLid() {
+      for (const transform of fixedLidTransforms) {
+        transform.object.position.copy(transform.position);
+        transform.object.quaternion.copy(transform.quaternion);
+        transform.object.scale.copy(transform.scale);
+        transform.object.updateMatrix();
+      }
+    }
+
+    function setExploderProgress(progress) {
+      exploder.setProgress(progress);
+      // The screen remains attached to its hinge at the designed 105-degree open pose.
+      restoreFixedLid();
+    }
+
+    function updateSelection(object) {
+      const componentName = componentNameFor(object);
+      if (!componentName) {
+        console.warn('[MacBook] 忽略没有名称或未收录在 nameMap 中的命中物体：', object.name || object);
+        clearSelection();
+        return;
+      }
+      if (componentName === highlightedComponentName) return;
+      clearHighlight();
+      highlightedComponentName = componentName;
+      const componentMeshes = [];
+      modelRoot.traverse((node) => {
+        if (node.isMesh && componentNameFor(node) === componentName) componentMeshes.push(node);
+      });
+      for (const mesh of componentMeshes) {
+        const originalMaterial = mesh.material;
+        const brighten = (material) => {
+          const clone = material.clone();
+          if (clone.emissive) {
+            clone.emissive.set(0x0b2a22);
+            clone.emissiveIntensity = 0.08;
+            clone.emissiveMap = null;
+          } else if (clone.color) {
+            clone.color.lerp(new THREE.Color(0x65cbb0), 0.035);
+          }
+          return clone;
+        };
+        const highlightMaterial = Array.isArray(originalMaterial)
+          ? originalMaterial.map(brighten)
+          : brighten(originalMaterial);
+        mesh.material = highlightMaterial;
+
+        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 38), new THREE.LineBasicMaterial({
+          color: 0x69c9ad,
+          transparent: true,
+          opacity: 0.68,
+          depthWrite: false,
+          toneMapped: false
+        }));
+        outline.name = 'selection_outline';
+        outline.renderOrder = 4;
+        outline.raycast = () => {};
+        mesh.add(outline);
+        highlightedParts.push({ object: mesh, originalMaterial, highlightMaterial, outline });
+      }
+      const info = partData[componentName];
+      introPanel.classList.remove('compact');
+      introPanel.classList.add('has-selection');
+      panelToggle.textContent = '收起说明';
+      panelToggle.setAttribute('aria-expanded', 'true');
+      selectedName.textContent = `${info.label} · ${componentName}`;
+      selectedRole.textContent = info.role;
+      selectedDetails.replaceChildren();
+      for (const parameter of info.parameters) {
+        const row = document.createElement('div');
+        row.className = 'detail-row';
+        const label = document.createElement('span');
+        label.textContent = `${parameter.label} · ${parameter.type}`;
+        const value = document.createElement('span');
+        value.textContent = parameter.value;
+        row.append(label, value);
+        selectedDetails.append(row);
+      }
+      for (const [labelText, valueText] of [['设计企业', info.designCompany], ['制造企业', info.manufacturer]]) {
+        const row = document.createElement('div');
+        row.className = 'detail-row';
+        const label = document.createElement('span');
+        label.textContent = labelText;
+        const value = document.createElement('span');
+        value.textContent = valueText;
+        row.append(label, value);
+        selectedDetails.append(row);
+      }
+      selectedSources.replaceChildren();
+      for (const source of info.sources) {
+        const link = document.createElement('a');
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = source.label;
+        selectedSources.append(link);
+      }
+    }
+
+    function bindPicking(targetScene, targetCamera, targetCanvas) {
+      // Capture pointerup before the exploder's orbit controls consume it.
+      targetCanvas.addEventListener('pointerup', (event) => {
+        if (event.button !== 0) return;
+        const rect = targetCanvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, targetCamera);
+        const intersects = raycaster.intersectObjects(targetScene.children, true);
+        if (intersects.length > 0) {
+          // The exploder adds Line overlays for measurements and origin guides. Select the nearest
+          // actual named assembly mesh in the same sorted hit list; warn only when no part was hit.
+          const partHit = intersects.find(({ object }) => object.isMesh && componentNameFor(object));
+          if (partHit) updateSelection(partHit.object);
+          else updateSelection(intersects[0].object);
+        } else clearSelection();
+      }, { capture: true });
+    }
+
+    function addExtraFillLights(targetScene) {
+      const ambientFill = new THREE.AmbientLight(0xdce9ff, 0.42);
+      ambientFill.name = 'macbook_ambient_fill';
+      const directionFill = new THREE.DirectionalLight(0xe7f0ff, 1.0);
+      directionFill.name = 'macbook_directional_fill';
+      directionFill.position.set(-3, 5, 7);
+      targetScene.add(ambientFill, directionFill);
+    }
+
+    function disableHelperRaycasts(targetScene) {
+      // Exploder measurement/gizmo Lines can sit in front of a part and have no component name.
+      // Keep the full scene traversal, but ensure those helpers cannot become the first hit.
+      targetScene.traverse((object) => {
+        if (!object.isMesh && (object.isLine || object.isLineSegments || object.isPoints || object.isSprite)) {
+          object.raycast = () => {};
+        }
+      });
+    }
+
+    function startManualFallback(gltf) {
+      fallbackActive = true;
+      status.textContent = '自动拆解加载失败，已启用手动爆炸模式';
+      setTimeout(() => status.classList.add('hidden'), 2600);
+      manualControls.classList.add('visible');
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1018);
+      camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.01, 1000);
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      container.replaceChildren(renderer.domElement);
+      canvas = renderer.domElement;
+      controls = new OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      enableComfortableRotation(controls, camera, canvas, true);
+      addExtraFillLights(scene);
+
+      modelRoot = gltf.scene;
+      scene.add(modelRoot);
+      captureFixedLid(modelRoot);
+      const modelBox = new THREE.Box3().setFromObject(modelRoot);
+      const center = modelBox.getCenter(new THREE.Vector3());
+      const size = modelBox.getSize(new THREE.Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      modelRoot.position.sub(center);
+      const radius = maxDimension * 0.72;
+      camera.position.set(radius * 1.45, radius * 1.35, radius * 1.55);
+      controls.target.set(0, 0, 0);
+      controls.update();
+
+      modelRoot.traverse((object) => {
+        if (!object.isMesh || componentNameFor(object) === 'display_assembly') return;
+        if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
+        const localCenter = object.geometry.boundingBox.getCenter(new THREE.Vector3());
+        object.updateWorldMatrix(true, false);
+        const worldCenter = localCenter.applyMatrix4(object.matrixWorld);
+        const direction = worldCenter.sub(center).normalize();
+        if (direction.lengthSq() < 1e-8) direction.set(0, 0, 1);
+        const parent = object.parent;
+        const parentOrigin = parent ? parent.worldToLocal(new THREE.Vector3(0, 0, 0)) : new THREE.Vector3();
+        const localDirection = parent
+          ? parent.worldToLocal(direction.clone().add(parentOrigin)).sub(parentOrigin).normalize()
+          : direction.clone();
+        const volume = object.geometry.boundingBox.getSize(new THREE.Vector3()).length();
+        const sizeWeight = Math.max(0.35, Math.min(1.35, maxDimension / Math.max(volume, maxDimension * 0.15)));
+        manualParts.push({ object, original: object.position.clone(), direction: localDirection, weight: sizeWeight });
+      });
+      printMeshNames(modelRoot);
+      bindPicking(scene, camera, canvas);
+      animateFallback();
+    }
+
+    function animateFallback() {
+      if (!fallbackActive) return;
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animateFallback);
+    }
+
+    explodeSlider.addEventListener('input', () => {
+      const progress = Number(explodeSlider.value);
+      explodeValue.textContent = progress.toFixed(2);
+      if (fallbackActive) {
+        const travel = Math.max(modelRoot ? new THREE.Box3().setFromObject(modelRoot).getSize(new THREE.Vector3()).length() * 0.24 : 1, 0.1);
+        for (const part of manualParts) {
+          part.object.position.copy(part.original).addScaledVector(part.direction, travel * progress * part.weight);
+        }
+        restoreFixedLid();
+      } else if (exploder?.setProgress) {
+        setExploderProgress(progress);
+      }
+    });
+
+    function onResize() {
+      if (fallbackActive && renderer && camera) {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      } else if (exploder?.onResize) {
+        exploder.onResize();
+      }
+    }
+    window.addEventListener('resize', onResize);
+
+    async function start() {
+      try {
+        const { GLTFExploder } = await import('gltf-exploder');
+        // The package docs name this mode SIZE_WEIGHTED, while v1.0.2 runtime enum values are lowercase.
+        const explosionMode = 'SIZE_WEIGHTED';
+        exploder = new GLTFExploder({
+          viewport: '#scene-container',
+          model: './macbook_parts.glb',
+          createUI: true,
+          adaptModel: true,
+          maxDistance: 3,
+          mode: explosionMode.toLowerCase()
+        });
+
+        // Auto mode owns the WebGL scene/camera. Wait for its GLTFLoader callback to attach meshes.
+        const deadline = Date.now() + 14000;
+        while (Date.now() < deadline) {
+          if (exploder.scene && exploder.camera && exploder.renderer) {
+            const loadedMeshes = [];
+            exploder.scene.traverse((object) => { if (object.isMesh) loadedMeshes.push(object); });
+            if (loadedMeshes.length > 0) {
+              scene = exploder.scene;
+              camera = exploder.camera;
+              renderer = exploder.renderer;
+              canvas = renderer.domElement;
+              // This page owns selection visuals; disable the library's second click highlighter
+              // so it cannot retain emissive state on a mesh after our component changes.
+              exploder.interactionManager?.setEnabled(false);
+              enableComfortableRotation(exploder.controls, camera, canvas);
+              addAppleMark(exploder.scene);
+              disableHelperRaycasts(scene);
+              modelRoot = loadedMeshes[0];
+              let root = modelRoot;
+              while (root.parent && root.parent !== scene) root = root.parent;
+              modelRoot = root;
+                      scene.background = new THREE.Color(0x0a1018);
+              addExtraFillLights(scene);
+              const grid = new THREE.GridHelper(0.8, 24, 0x32465b, 0x1b2a3b);
+              grid.name = 'macbook_scene_grid';
+              grid.material.transparent = true;
+              grid.material.opacity = 0.22;
+              scene.add(grid);
+              captureFixedLid(modelRoot);
+              printMeshNames(modelRoot);
+              bindPicking(scene, camera, canvas);
+              // Keep the approved ~82% initial separation, with the display fixed to its hinge.
+              exploder.setMultiplier(0.14);
+              restoreFixedLid();
+              setExploderProgress(0.82);
+              explodeSlider.value = '0.82';
+              explodeValue.textContent = '0.82';
+              manualControls.classList.add('visible');
+              // Auto-fit again after the parts have moved; the constructor only fits the assembled bounds.
+              exploder.fitToView();
+              status.classList.add('hidden');
+              return;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 160));
+        }
+        throw new Error('自动拆解器未能在限定时间内载入 GLB');
+      } catch (error) {
+        console.warn('[MacBook] gltf-exploder 自动模式不可用，切换到手动爆炸模式：', error);
+        try {
+          const gltf = await new GLTFLoader().loadAsync('./macbook_parts.glb');
+          startManualFallback(gltf);
+        } catch (loadError) {
+          console.error('[MacBook] GLB 加载失败：', loadError);
+          status.textContent = '模型载入失败：请确认 macbook_parts.glb 与 index.html 在同一目录';
+          status.classList.add('error');
+        }
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
